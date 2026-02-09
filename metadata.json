@@ -1,0 +1,5 @@
+{
+  "name": "GraphGullible - The Teachable Agent",
+  "description": "An interactive educational app where you teach a naive AI chatbot how to spot and fix misleading data visualizations.",
+  "requestFramePermissions": []
+}
