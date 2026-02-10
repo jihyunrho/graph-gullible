@@ -1,21 +1,22 @@
 import { Message } from '../types';
 
 export const saveChatSession = async (
+  sessionId: string,
   email: string,
   scenarioId: number,
   title: string,
   messages: Message[]
 ) => {
+  // We now include session_id in the payload to allow UPSERT (update if exists)
   const payload = {
-    email,
-    scenarioId,
-    scenarioTitle: title,
-    messages,
-    timestamp: new Date().toISOString()
+    session_id: sessionId,
+    user_email: email,
+    scenario_id: scenarioId,
+    scenario_title: title,
+    messages: messages 
   };
 
   try {
-    // Call the Vercel Serverless Function
     const response = await fetch('/api/save-chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -23,17 +24,14 @@ export const saveChatSession = async (
     });
     
     if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+        if (response.status === 404) {
+             console.error("API Endpoint not found. Are you running 'vercel dev'?");
+        }
+        const errText = await response.text();
+        throw new Error(`Server error (${response.status}): ${errText}`);
     }
     
-    const result = await response.json();
-    console.log("Session saved successfully:", result);
-    
   } catch (error) {
-    // We log the error but don't disrupt the user flow
-    console.error("Failed to save chat session to DB:", error);
-    
-    // Fallback log for debugging
-    console.log("Fallback Payload Log:", payload);
+    console.error("DB Save Failed:", error);
   }
 };

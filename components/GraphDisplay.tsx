@@ -6,6 +6,9 @@ import {
   Line,
   AreaChart,
   Area,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -105,6 +108,26 @@ const GraphDisplay: React.FC<GraphDisplayProps> = ({ scenario }) => {
                   animationDuration={1500} 
                 />
             </AreaChart>
+        );
+      case ChartType.PIE:
+        return (
+          <PieChart margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              outerRadius={120}
+              label={({ name, value }) => `${name}: ${value}%`}
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={chartConfig.colors[index % chartConfig.colors.length]} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value: number) => `${value}%`} />
+            <Legend />
+          </PieChart>
         );
       default:
         return null;

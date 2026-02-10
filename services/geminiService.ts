@@ -1,6 +1,5 @@
 import { GoogleGenAI, Content, Part, Type } from "@google/genai";
 import { Message, Scenario, ConversationStep, BotResponse } from "../types";
-import { SYSTEM_INSTRUCTION_BASE } from "../constants";
 
 const getClient = () => {
   const apiKey = process.env.API_KEY;
@@ -14,17 +13,19 @@ export const generateBotResponse = async (
   currentMessage: string,
   history: Message[],
   scenario: Scenario,
-  step: ConversationStep
+  step: ConversationStep,
+  mistakeCount: number = 0,
+  isTutorialMode: boolean = false
 ): Promise<BotResponse> => {
   const ai = getClient();
-  const modelId = "gemini-3-flash-preview"; // Using flash for speed, switch to pro if reasoning needs boost
+  const modelId = "gemini-2.5-flash-lite";
 
-  // Filter history to only include user and model (exclude guide messages from API history to avoid confusion, or keep them as context)
-  // Let's keep them but treat 'guide' as 'model' for the API history perspective, but labeled clearly in text if needed.
-  // Ideally, the model should know what the guide said.
+  // Guide is disabled in tutorial mode
+  const allowGuideIntervention = !isTutorialMode;
+
   const contents: Content[] = history.map((msg) => ({
     role: msg.role === 'guide' ? 'model' : msg.role,
-    parts: [{ text: msg.role === 'guide' ? `[SUPERVISOR NOTE]: ${msg.text}` : msg.text } as Part],
+    parts: [{ text: msg.role === 'guide' ? `[PREVIOUS SUPERVISOR INTERVENTION]: ${msg.text}` : msg.text } as Part],
   }));
 
   if (currentMessage) {
@@ -35,71 +36,104 @@ export const generateBotResponse = async (
   } else if (contents.length === 0) {
     contents.push({
       role: "user",
-      parts: [{ text: "Please look at the graph and tell me what you see." } as Part],
+      parts: [{ text: "Start the simulation. Look at the graph." } as Part],
     });
   }
 
-  // Enhanced System Instruction with Dual Persona and Evaluation Logic
+  // Logic to provide hints or direct answers if user is struggling (only if guide allowed)
+  const isStruggling = mistakeCount >= 2;
+  const guidanceInstruction = (allowGuideIntervention && isStruggling)
+    ? `IMPORTANT: The user has failed to explain this correctly ${mistakeCount} times. STOP BEING VAGUE. As the 'guide', you must explicitly TELL the user the answer or the exact keyword they need to type. Do not just hint. Give the solution. Keep it under 35 words.` 
+    : "";
+
+  // Dynamic instruction based on mode to prevent hallucinations
+  const userCorrectsFailureBehavior = allowGuideIntervention
+    ? `Return sender="guide". Text: "The bot is misinterpreting the graph. You need to explicitly tell it that it is wrong."`
+    : `Act confident in your wrong belief. Text: "I'm pretty sure I'm right! Look at the graph! Why would I be wrong?". sender: "model".`;
+
+  let stepInstruction = "";
+  switch(step) {
+    case ConversationStep.INIT_MISLED: // Step 0
+      stepInstruction = `
+        TASK: Act as the Naive "Model".
+        ACTION: Look at the graph and make a confidently WRONG interpretation based strictly on the TRICK defined below.
+        CONSTRAINT: Be happy about the wrong conclusion.
+        RESULT: shouldAdvance = true.
+      `;
+      break;
+    
+    case ConversationStep.USER_CORRECTS: // Step 1
+      stepInstruction = `
+        CONTEXT: You just made a misleading claim. The user IS EXPECTED to correct you now.
+        
+        CHECK USER INPUT:
+        1. Does the user explicitly say you are wrong, misled, incorrect, or that the graph is deceptive?
+        2. Does the user disagree with your conclusion?
+        
+        IF YES (User Corrects):
+           - TASK: React to the user saying you are wrong.
+           - ACTION: Act surprised. Apologize.
+           - CRITICAL: Ask "What specifically tricked me?" or "Which part should I look at?".
+           - CONSTRAINT: Play dumb. Do NOT correct yourself yet.
+           - RESULT: shouldAdvance = true.
+           - sender: "model"
+           
+        IF NO (User Agrees, changes topic, or is vague):
+           - ${userCorrectsFailureBehavior}
+           - RESULT: shouldAdvance = false.
+      `;
+      break;
+
+    case ConversationStep.USER_EXPLAINS_FEATURE: // Step 2
+      stepInstruction = `
+        TASK: User pointed out the visual feature.
+        ACTION: Acknowledge the feature.
+        CRITICAL: Act confused about the MEANING. Ask: "I see that, but how does that make my interpretation wrong?"
+        CONSTRAINT: Do NOT correct your interpretation yet.
+        RESULT: shouldAdvance = true.
+      `;
+      break;
+
+    case ConversationStep.USER_SUGGESTS_FIX: // Step 3
+      stepInstruction = `
+        TASK: User explained the impact.
+        ACTION: Have an "Aha!" moment.
+        CRITICAL: Thank the user and restate the correct interpretation.
+        RESULT: shouldAdvance = true.
+      `;
+      break;
+
+    default: // Step 4 or others
+      stepInstruction = "The conversation is complete. Thank the user.";
+  }
+
+  // STRICT ENUM CONSTRAINT:
+  // In Tutorial Mode, strictly remove 'guide' from the allowed values.
+  // This physically prevents the model from generating a guide response.
+  const validSenders = allowGuideIntervention ? ["model", "guide"] : ["model"];
+
   const specificInstruction = `
-    You are the engine for an educational game called "GraphGullible".
-    You must manage two distinct personas:
+    Role: Game Engine for "GraphGullible".
     
-    1. **GraphGullible (The Student)**: A naive AI. 
-       - Sees graphs superficially.
-       - Falls for specific misleading features (defined in context).
-       - Is friendly, curious, but easily tricked.
-       - Only learns when the user points out the SPECIFIC visual flaw.
+    SCENARIO: ${scenario.title}.
+    TRICK: ${scenario.aiContext}
     
-    2. **The Guide (The Supervisor)**: An expert data viz instructor.
-       - Intervenes ONLY when the user fails to teach GraphGullible correctly.
-       - Speaks directly to the user to correct them or give a hint.
-       - Tone: Stern but helpful, like a teacher correcting a student's teaching method.
-
-    CURRENT SCENARIO:
-    Title: ${scenario.title}
-    Description: ${scenario.description}
-    Data: ${JSON.stringify(scenario.data)}
-    MISLEADING FEATURE & AI CONTEXT: ${scenario.aiContext}
-
-    CURRENT PROGRESS: Step ${step}
-    (0=Bot Mistake, 1=User Corrects, 2=User Explains Feature, 3=User Fixes)
-
-    YOUR TASK:
-    Analyze the User's latest message.
-
-    DECISION LOGIC:
+    CURRENT CONVERSATION STEP ID: ${step}
     
-    IF (Step == 0):
-      - Ignore user input (it's just a trigger).
-      - ACTION: Speak as **GraphGullible**. Interpret the graph WRONGLY based on the 'AI Context'. Be confident but wrong.
-      - RESULT: Advance Step.
+    ${stepInstruction}
+    ${guidanceInstruction}
+    
+    GLOBAL RULES:
+    1. MODE: ${isTutorialMode ? "TUTORIAL (NO GUIDE ALLOWED)" : "TRAINING (GUIDE ENABLED)"}.
+    2. If Tutorial Mode, sender MUST be "model".
+    3. If Training Mode and user fails to correct the bot in Step 1, sender MUST be "guide".
 
-    IF (Step > 0):
-      - Did the user agree with GraphGullible's wrong interpretation? -> FAIL.
-      - Is the user talking about something completely unrelated? -> FAIL.
-      - Did the user give a vague answer (e.g., "it's wrong" without saying why)? -> FAIL (if needing explanation).
-      - Did the user correctly identify the issue or fix requested by the current Step? -> SUCCESS.
+    LATENCY & STYLE RULES:
+    1. KEEP IT SHORT. Maximum 2 sentences.
+    2. Maximum 35 words total.
+    3. Be snappy and naive.
 
-      CASE FAIL:
-        - ACTION: Speak as **The Guide**.
-        - Content: Point out why the user's teaching was insufficient. E.g., "Don't agree with the bot! The graph is misleading because..." or "You need to be more specific about the Y-axis."
-        - RESULT: DO NOT Advance Step.
-
-      CASE SUCCESS:
-        - ACTION: Speak as **GraphGullible**.
-        - Content: React naturally. 
-          - If Step 1->2: "Oh? really? Why is it misleading?"
-          - If Step 2->3: "I see the [feature] now! How do we fix it?"
-          - If Step 3->4: "Aha! [Summary of lesson]. Thanks!"
-        - RESULT: Advance Step.
-
-    OUTPUT FORMAT:
-    You MUST return JSON.
-    {
-      "sender": "model" (for GraphGullible) OR "guide" (for The Guide),
-      "text": "The content of the message",
-      "shouldAdvance": true (if success/GraphGullible) OR false (if fail/Guide)
-    }
+    IMPORTANT: Return RAW JSON only.
   `;
 
   try {
@@ -108,11 +142,12 @@ export const generateBotResponse = async (
       contents: contents,
       config: {
         systemInstruction: specificInstruction,
-        responseMimeType: "application/json", // Force JSON for reliable parsing
+        responseMimeType: "application/json",
+        maxOutputTokens: 400,
         responseSchema: {
             type: Type.OBJECT,
             properties: {
-                sender: { type: Type.STRING, enum: ["model", "guide"] },
+                sender: { type: Type.STRING, enum: validSenders }, // <--- STRICT CONSTRAINT
                 text: { type: Type.STRING },
                 shouldAdvance: { type: Type.BOOLEAN }
             }
@@ -120,17 +155,18 @@ export const generateBotResponse = async (
       },
     });
 
-    const jsonText = response.text;
+    let jsonText = response.text;
     if (!jsonText) throw new Error("Empty response");
     
+    jsonText = jsonText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+
     const parsed = JSON.parse(jsonText) as BotResponse;
     return parsed;
 
   } catch (error) {
     console.error("Gemini API Error:", error);
-    // Fallback in case of JSON error
     return {
-        text: "I'm having a bit of trouble understanding. Can you say that again?",
+        text: "I'm having a little trouble thinking straight. Can you click that Retry button?",
         sender: "model",
         shouldAdvance: false
     };

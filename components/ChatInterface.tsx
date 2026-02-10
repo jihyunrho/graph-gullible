@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Send, Bot, User, Sparkles, Lightbulb, ShieldCheck } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Lightbulb, ShieldCheck, RefreshCw, AlertCircle } from 'lucide-react';
 import { Message, TutorialStepConfig } from '../types';
 
 interface ChatInterfaceProps {
   messages: Message[];
   onSendMessage: (text: string) => void;
+  onResendMessage: () => void;
   isLoading: boolean;
   isCompleted: boolean;
   onNextScenario: () => void;
@@ -15,6 +16,7 @@ interface ChatInterfaceProps {
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
   messages, 
   onSendMessage, 
+  onResendMessage,
   isLoading, 
   isCompleted, 
   onNextScenario,
@@ -48,27 +50,51 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const getRoleStyles = (role: string) => {
       if (role === 'user') return 'bg-gray-800 text-white';
-      if (role === 'guide') return 'bg-rose-100 text-rose-700';
+      // Made Guide icon background stronger red
+      if (role === 'guide') return 'bg-red-100 text-red-600 ring-2 ring-red-200 ring-offset-1'; 
       return isTutorialMode ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600';
   };
 
-  const getMessageStyles = (role: string) => {
+  const getMessageStyles = (role: string, text: string) => {
+      // Special style for the error message
+      if (role === 'model' && text.includes("trouble thinking straight")) {
+          return 'bg-red-50 border border-red-200 text-red-700 rounded-tl-none';
+      }
       if (role === 'user') return 'bg-gray-800 text-white rounded-tr-none';
-      if (role === 'guide') return 'bg-rose-50 border border-rose-100 text-rose-800 rounded-tl-none';
+      
+      // Made Guide bubble clearly RED with thicker border
+      if (role === 'guide') return 'bg-red-50 border-2 border-red-200 text-red-900 rounded-tl-none shadow-sm';
+      
       return 'bg-white border border-gray-200 text-gray-700 rounded-tl-none';
   };
+
+  // Check if the last message is an error message
+  const lastMessageIsError = messages.length > 0 && messages[messages.length - 1].text.includes("trouble thinking straight");
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative">
       {/* Header */}
-      <div className="p-4 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isTutorialMode ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
-          <Bot size={18} />
+      <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-2 bg-gray-50/50">
+        <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isTutorialMode ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
+            <Bot size={18} />
+            </div>
+            <div>
+            <h3 className="font-semibold text-gray-800">{isTutorialMode ? 'GraphGullible (Training Mode)' : 'GraphGullible AI'}</h3>
+            <p className="text-xs text-gray-500">{isTutorialMode ? 'Guided Session' : 'Learning from you...'}</p>
+            </div>
         </div>
-        <div>
-          <h3 className="font-semibold text-gray-800">{isTutorialMode ? 'GraphGullible (Training Mode)' : 'GraphGullible AI'}</h3>
-          <p className="text-xs text-gray-500">{isTutorialMode ? 'Guided Session' : 'Learning from you...'}</p>
-        </div>
+        
+        {/* Persistent Refresh Button */}
+        {!isLoading && !isCompleted && (
+            <button 
+                onClick={onResendMessage}
+                className={`p-2 rounded-full transition-colors ${lastMessageIsError ? 'bg-red-100 text-red-600 animate-pulse' : 'text-gray-400 hover:text-indigo-600 hover:bg-gray-100'}`}
+                title="Retry last connection"
+            >
+                <RefreshCw size={18} />
+            </button>
+        )}
       </div>
 
       {/* Messages */}
@@ -86,28 +112,45 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               <div
                 className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${getRoleStyles(msg.role)}`}
               >
-                {getRoleIcon(msg.role)}
+                {msg.text.includes("trouble thinking straight") ? <AlertCircle size={16} /> : getRoleIcon(msg.role)}
               </div>
               <div
-                className={`p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${getMessageStyles(msg.role)}`}
+                className={`p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${getMessageStyles(msg.role, msg.text)}`}
               >
-                {msg.role === 'guide' && <div className="text-xs font-bold mb-1 opacity-70 uppercase tracking-wider">Guide Intervention</div>}
+                {msg.role === 'guide' && (
+                    <div className="flex items-center gap-1.5 text-xs font-bold mb-1 text-red-600 uppercase tracking-wider border-b border-red-100 pb-1">
+                        <ShieldCheck size={12} className="fill-red-100" />
+                        Guide Intervention
+                    </div>
+                )}
                 {msg.text}
               </div>
             </div>
           </div>
         ))}
         {isLoading && (
-          <div className="flex justify-start w-full">
-             <div className="flex flex-row gap-2 max-w-[75%]">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isTutorialMode ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                  <Bot size={16} />
+          <div className="flex justify-start w-full animate-fadeIn">
+             <div className="flex flex-col gap-2 max-w-[75%]">
+                <div className="flex gap-2">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isTutorialMode ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                    <Bot size={16} />
+                    </div>
+                    <div className="bg-white border border-gray-200 p-4 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isTutorialMode ? 'bg-amber-400' : 'bg-indigo-400'}`} style={{ animationDelay: '0ms' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isTutorialMode ? 'bg-amber-400' : 'bg-indigo-400'}`} style={{ animationDelay: '150ms' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isTutorialMode ? 'bg-amber-400' : 'bg-indigo-400'}`} style={{ animationDelay: '300ms' }} />
+                    </div>
                 </div>
-                <div className="bg-white border border-gray-200 p-4 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${isTutorialMode ? 'bg-amber-400' : 'bg-indigo-400'}`} style={{ animationDelay: '0ms' }} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${isTutorialMode ? 'bg-amber-400' : 'bg-indigo-400'}`} style={{ animationDelay: '150ms' }} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${isTutorialMode ? 'bg-amber-400' : 'bg-indigo-400'}`} style={{ animationDelay: '300ms' }} />
-                </div>
+                
+                {/* Immediate Resend Button (during loading) */}
+                <button 
+                  onClick={onResendMessage}
+                  className="self-start ml-10 flex items-center gap-1.5 text-xs text-gray-400 hover:text-indigo-600 transition-colors py-1 px-2 rounded-md hover:bg-gray-50"
+                  title="Resend last message"
+                >
+                   <RefreshCw size={12} />
+                   <span>Taking too long? Retry</span>
+                </button>
              </div>
           </div>
         )}
@@ -124,6 +167,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <Sparkles size={18} />
             {isTutorialMode ? "Next Training Step" : "Start Next Challenge"}
           </button>
+        ) : lastMessageIsError ? (
+            // Error State: Show BIG Retry Button
+             <button
+                onClick={onResendMessage}
+                className="w-full py-3 text-white bg-red-500 hover:bg-red-600 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-200"
+            >
+                <RefreshCw size={18} />
+                Retry Connection
+            </button>
         ) : tutorialConfig ? (
           // Tutorial Mode: Inline Options
           <div className="space-y-3 animate-slideUp">
@@ -134,18 +186,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                    <span className="font-medium">{tutorialConfig.guideMessage}</span>
                 </div>
              </div>
-             <div className="grid gap-2">
-               {tutorialConfig.options.map((opt, i) => (
-                  <button
-                    key={i}
-                    onClick={() => onSendMessage(opt)}
-                    disabled={isLoading}
-                    className="w-full text-left px-4 py-3 bg-white border border-gray-200 hover:border-amber-400 hover:bg-amber-50 text-gray-700 hover:text-amber-900 text-sm rounded-xl transition-all shadow-sm font-medium"
-                  >
-                    {opt}
-                  </button>
-               ))}
-             </div>
+             
+             {isLoading ? (
+               // While loading in Tutorial Mode, show disabled button
+                <div className="flex flex-col gap-2 items-center justify-center py-4">
+                     <span className="text-sm text-gray-400 animate-pulse">Waiting for response...</span>
+                </div>
+             ) : (
+                <div className="grid gap-2">
+                {tutorialConfig.options.map((opt, i) => (
+                    <button
+                        key={i}
+                        onClick={() => onSendMessage(opt)}
+                        disabled={isLoading}
+                        className="w-full text-left px-4 py-3 bg-white border border-gray-200 hover:border-amber-400 hover:bg-amber-50 text-gray-700 hover:text-amber-900 text-sm rounded-xl transition-all shadow-sm font-medium"
+                    >
+                        {opt}
+                    </button>
+                ))}
+                </div>
+             )}
           </div>
         ) : (
           // Normal Mode: Text Input

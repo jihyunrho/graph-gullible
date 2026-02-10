@@ -15,7 +15,8 @@ export interface ChartDataPoint {
 export enum ChartType {
   BAR = 'BAR',
   LINE = 'LINE',
-  AREA = 'AREA'
+  AREA = 'AREA',
+  PIE = 'PIE'
 }
 
 export interface TutorialStepOption {

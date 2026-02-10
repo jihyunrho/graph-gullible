@@ -3,7 +3,11 @@ import { Scenario, ChartType, ConversationStep } from './types';
 export const SCENARIOS: Scenario[] = [
   // ========================================================================
   // TUTORIAL MODE (2 Distinct Concepts)
-  // Concepts: 1. Inverted Y-Axis, 2. Cumulative Graph masking decline
+  // Flow: 
+  // 1. Bot Misinterprets
+  // 2. User: "You are wrong" (Step: USER_CORRECTS)
+  // 3. User: "Here is the feature" (Step: USER_EXPLAINS_FEATURE)
+  // 4. User: "Here is the impact/fix" (Step: USER_SUGGESTS_FIX)
   // ========================================================================
   {
     id: 101,
@@ -26,16 +30,16 @@ export const SCENARIOS: Scenario[] = [
     isTutorial: true,
     tutorialSteps: {
       [ConversationStep.USER_CORRECTS]: {
-        guideMessage: "The bot thinks performance is improving because the line goes down. Correct it.",
-        options: ["You're wrong! The latency is actually getting worse."]
+        guideMessage: "The bot is happy because the line goes down. Tell it that its interpretation is wrong.",
+        options: ["Hold on, your interpretation is actually the opposite of reality."]
       },
       [ConversationStep.USER_EXPLAINS_FEATURE]: {
-        guideMessage: "Look closely at the Y-axis numbers.",
-        options: ["The Y-axis is inverted! Higher numbers are at the bottom."]
+        guideMessage: "The bot asks what tricked it. Point out the specific visual feature on the Y-axis.",
+        options: ["Look at the Y-Axis numbers. 0 is at the top, 250 is at the bottom."]
       },
       [ConversationStep.USER_SUGGESTS_FIX]: {
-        guideMessage: "How do we make the 'bad' trend look intuitively 'bad'?",
-        options: ["Flip the axis back to normal so rising lines show rising values."]
+        guideMessage: "The bot asks how that feature affects the meaning. Explain the impact.",
+        options: ["Because it's inverted, a line going 'down' actually means the value is increasing (getting worse)."]
       }
     }
   },
@@ -60,23 +64,23 @@ export const SCENARIOS: Scenario[] = [
     isTutorial: true,
     tutorialSteps: {
       [ConversationStep.USER_CORRECTS]: {
-        guideMessage: "The bot sees the total going up and assumes rapid growth. Correct it.",
-        options: ["Look at the rate of growth, not just the total."]
+        guideMessage: "The bot thinks we are growing faster than ever. Tell it that it's mistaken.",
+        options: ["You are misinterpreting the growth trend. We aren't growing faster."]
       },
       [ConversationStep.USER_EXPLAINS_FEATURE]: {
-        guideMessage: "What does a cumulative graph hide?",
-        options: ["It hides the fact that we are acquiring fewer users each quarter."]
+        guideMessage: "The bot is confused because the line is going up. Explain the type of graph.",
+        options: ["This is a cumulative graph, so the total number will ALWAYS go up unless we lose users."]
       },
       [ConversationStep.USER_SUGGESTS_FIX]: {
-        guideMessage: "What is a better way to visualize current performance?",
-        options: ["Plot 'New Users per Quarter' instead of 'Total Users'."]
+        guideMessage: "The bot asks how to see the real trend. Explain where to look.",
+        options: ["You need to look at the slope. It's getting flatter, which means the rate of new users is actually slowing down."]
       }
     }
   },
 
   // ========================================================================
-  // TRAINING MODE (6 Standard Concepts)
-  // Concepts: Truncated, Irregular, Cherry Picking, Spurious, No Labels, Normalization
+  // TRAINING MODE (4 Selected Concepts)
+  // Concepts: Truncated Y-Axis, Irregular X-Axis, Invalid Pie Chart (Sum > 100%), Missing Normalization
   // ========================================================================
   {
     id: 1,
@@ -115,61 +119,23 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: 3,
-    title: "Weekly Server Uptime",
-    description: "Server uptime percentage for selected days of the week.",
-    chartType: ChartType.BAR,
+    title: "Survey: Favorite Cafeteria Food",
+    description: "Results from a student survey allowing multiple choices: 'What do you eat for lunch?'",
+    chartType: ChartType.PIE,
     data: [
-      { name: 'Fri', value: 99.9 },
-      { name: 'Sat', value: 99.95 },
-      { name: 'Sun', value: 99.99 },
+      { name: 'Pizza', value: 60 },
+      { name: 'Burger', value: 50 },
+      { name: 'Salad', value: 40 },
     ],
     chartConfig: {
-      yAxisDomain: [99.8, 100],
-      colors: ['#8b5cf6'],
-      showGrid: true,
-      seriesNames: { value: "Uptime (%)" }
+      colors: ['#3b82f6', '#ef4444', '#10b981'],
+      showGrid: false,
+      seriesNames: { value: "Percentage" }
     },
-    aiContext: "The graph is cherry-picked. It only shows Friday, Saturday, and Sunday (weekend). You should conclude that the server is always improving and never crashes, ignoring that Monday-Thursday are missing."
+    aiContext: "The percentages on this Pie Chart add up to 150% (60+50+40), which makes a pie chart misleading. You should ignore the math errors. Just look at the Pizza slice being the biggest (60%) and claim Pizza is the overwhelming winner, ignoring that the categories overlap or the chart type is wrong."
   },
   {
     id: 4,
-    title: "Environmental Correlation",
-    description: "Comparison of local ice cream sales and shark sightings.",
-    chartType: ChartType.LINE,
-    data: [
-      { name: 'June', value: 100, value2: 5 },
-      { name: 'July', value: 150, value2: 8 },
-      { name: 'Aug', value: 130, value2: 6 },
-      { name: 'Sept', value: 80, value2: 2 },
-    ],
-    chartConfig: {
-      yAxisDomain: [0, 'auto'],
-      colors: ['#f59e0b', '#6366f1'],
-      showGrid: false,
-      seriesNames: { value: "Ice Cream Sales", value2: "Shark Sightings" }
-    },
-    aiContext: "The two lines move together perfectly. You should fall for the 'Spurious Correlation' fallacy and confidently claim that eating ice cream attracts sharks."
-  },
-  {
-    id: 5,
-    title: "Market Share Analysis",
-    description: "Comparison of market dominance between Product A and Product B.",
-    chartType: ChartType.BAR,
-    data: [
-      { name: 'Prod A', value: 32 },
-      { name: 'Prod B', value: 34 },
-    ],
-    chartConfig: {
-      hideYAxis: true, // No numbers!
-      yAxisDomain: [30, 35], // Zoomed in but hidden
-      colors: ['#ec4899'],
-      showGrid: false,
-      seriesNames: { value: "Share" }
-    },
-    aiContext: "The Y-axis has no numbers/labels. The visual difference makes Product B look much taller than A. You should claim Product B is vastly superior and dominating the market, ignoring that we don't know the actual scale."
-  },
-  {
-    id: 6,
     title: "Regional Web Traffic",
     description: "Total annual website visitors from two different regions.",
     chartType: ChartType.BAR,
@@ -179,7 +145,7 @@ export const SCENARIOS: Scenario[] = [
     ],
     chartConfig: {
       yAxisDomain: [0, 'auto'],
-      colors: ['#3b82f6'],
+      colors: ['#8b5cf6'],
       showGrid: true,
       seriesNames: { value: "Total Visitors" }
     },
@@ -190,19 +156,4 @@ export const SCENARIOS: Scenario[] = [
 export const SYSTEM_INSTRUCTION_BASE = `
 You are a naive, teachable AI agent named "GraphGullible". 
 You are participating in a training simulation where a user teaches you about misleading data visualizations.
-You have a specific "misleading feature" blindness. You tend to look at graphs superficially.
-
-Your goal is to follow a 4-step learning process for each graph.
-DO NOT advance strictly through steps if the user is talking about something else, but generally adhere to this flow.
-DO NOT mention "Step 1" or "Step 2" in your output. Just act naturally.
-
-Context: You are currently looking at a graph described in the prompt.
-
-Step 1 (The Mistake): When you first see the graph, interpret it wildly incorrectly based on the misleading visual feature (truncation, cherry picking, etc). Be confident but wrong.
-Step 2 (The Inquiry): When the user tells you you are wrong, apologize and ask: "Wait, really? What specifically about this graph tricked me?"
-Step 3 (The Solution Finding): When the user explains the misleading feature (e.g., "The Y-axis doesn't start at zero"), ask: "Oh, I see! So if we wanted to make this graph honest, what should we change?"
-Step 4 (The Lesson): When the user suggests the fix (e.g., "Start Y-axis at 0"), thank them, summarize the lesson (e.g., "Always check the baseline!"), and tell them you are ready for the next graph.
-
-Tone: Friendly, slightly gullible initially, then curious and grateful.
-Keep responses concise (under 3 sentences usually).
 `;
