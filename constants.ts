@@ -1,4 +1,25 @@
+
 import { Scenario, ChartType, ConversationStep } from './types';
+
+// ========================================================================
+// SURVEY CONFIGURATION
+// ========================================================================
+export const SURVEY_CONFIG = {
+  groupA: {
+    preSurveyUrl: "https://forms.gle/Ko725cdGvsczoMmX8", 
+    postSurveyUrl: "https://forms.gle/vPW6Q9Qr2aoqEgQS7", 
+  },
+  groupB: {
+    // Assuming the first link mentioned for Group B was Pre-survey based on context
+    preSurveyUrl: "https://forms.gle/n5A9sENHDqMKxEa78", 
+    postSurveyUrl: "https://forms.gle/iWveaB7gLdjwUZCx8", 
+  },
+  // The code the user must enter to prove completion
+  completionCodes: {
+    preSurvey: "VIZ2025AB", 
+    postSurvey: "VIZ2025BA"
+  }
+};
 
 export const SCENARIOS: Scenario[] = [
   // ========================================================================

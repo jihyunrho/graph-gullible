@@ -1,3 +1,4 @@
+
 export type Role = 'user' | 'model' | 'guide';
 
 export interface Message {
@@ -64,4 +65,15 @@ export interface BotResponse {
   text: string;
   sender: 'model' | 'guide';
   shouldAdvance: boolean;
+}
+
+// NEW TYPES FOR DASHBOARD FLOW
+export type UserGroup = 'A' | 'B';
+
+export type AppView = 'email' | 'dashboard' | 'chat';
+
+export interface ProgressState {
+  preSurvey: boolean;
+  intervention: boolean;
+  postSurvey: boolean;
 }

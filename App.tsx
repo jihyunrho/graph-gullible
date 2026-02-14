@@ -1,15 +1,27 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import GraphDisplay from './components/GraphDisplay';
 import ChatInterface from './components/ChatInterface';
 import OverlayScreen from './components/OverlayScreen';
 import EmailScreen from './components/EmailScreen';
+import Dashboard from './components/Dashboard';
 import { SCENARIOS } from './constants';
 import { generateBotResponse } from './services/geminiService';
-import { saveChatSession } from './services/dbService';
-import { Message, ConversationStep } from './types';
-import { BarChart3, GraduationCap, Target } from 'lucide-react';
+import { saveChatSession, saveUserGroup } from './services/dbService';
+import { Message, ConversationStep, UserGroup, AppView, ProgressState } from './types';
+import { BarChart3, GraduationCap, Target, ArrowLeft } from 'lucide-react';
 
 const App: React.FC = () => {
+  // Navigation & Group State
+  const [view, setView] = useState<AppView>('email'); // email -> dashboard -> chat
+  const [userGroup, setUserGroup] = useState<UserGroup>('A'); 
+  const [progress, setProgress] = useState<ProgressState>({
+    preSurvey: false,
+    intervention: false,
+    postSurvey: false
+  });
+
+  // Chat/Scenario State
   const [currentScenarioIndex, setCurrentScenarioIndex] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [step, setStep] = useState<ConversationStep>(ConversationStep.INIT_MISLED);
@@ -18,16 +30,11 @@ const App: React.FC = () => {
   
   // Track the unique session ID for the current scenario run
   const [sessionId, setSessionId] = useState<string>('');
-  
-  // Ref to hold the current session ID to access it inside closures without dependency issues
   const sessionIdRef = useRef<string>('');
-
-  // Ref to track the latest request ID to ignore stale responses
   const activeRequestId = useRef(0);
   
-  // App Flow State
+  // App Flow State (within Chat View)
   const [userEmail, setUserEmail] = useState('');
-  const [showEmailEntry, setShowEmailEntry] = useState(true);
   const [showIntro, setShowIntro] = useState(false);
   const [showTransition, setShowTransition] = useState(false);
   const [showEnding, setShowEnding] = useState(false);
@@ -36,10 +43,8 @@ const App: React.FC = () => {
   const isTutorial = currentScenario.isTutorial === true;
   const isUserTurn = !isLoading && step !== ConversationStep.COMPLETED && step !== ConversationStep.INIT_MISLED;
 
-  // Determine if we should show tutorial options
   const currentTutorialConfig = isTutorial && isUserTurn ? currentScenario.tutorialSteps?.[step] : undefined;
 
-  // Calculate stats for progress bar
   const totalScenarios = SCENARIOS.length;
   const tutorialCount = SCENARIOS.filter(s => s.isTutorial).length;
   const mainCount = totalScenarios - tutorialCount;
@@ -47,7 +52,8 @@ const App: React.FC = () => {
   const isMainGame = !isTutorial;
   const mainGameProgress = isMainGame ? (currentScenarioIndex - tutorialCount) : -1;
 
-  // Helper to generate UUID
+  // --- HELPERS ---
+
   const generateUUID = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
       return crypto.randomUUID();
@@ -55,18 +61,17 @@ const App: React.FC = () => {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
   };
 
-  // Helper to safely update session ID state and ref
   const updateSessionId = (id: string) => {
     setSessionId(id);
     sessionIdRef.current = id;
   };
 
-  // Shared Logic for processing bot interaction
+  // --- LOGIC: CHAT INTERACTION ---
+
   const processBotInteraction = async (userText: string, currentHistory: Message[], activeSessionId: string) => {
     const requestId = ++activeRequestId.current;
     setIsLoading(true);
 
-    // Determine what the NEXT step *would* be if successful
     let potentialNextStep = step;
     if (step === ConversationStep.USER_CORRECTS) potentialNextStep = ConversationStep.USER_EXPLAINS_FEATURE;
     else if (step === ConversationStep.USER_EXPLAINS_FEATURE) potentialNextStep = ConversationStep.USER_SUGGESTS_FIX;
@@ -79,25 +84,21 @@ const App: React.FC = () => {
         currentScenario,
         step,
         mistakeCount,
-        isTutorial // Pass isTutorialMode
+        isTutorial
       );
 
-      // CRITICAL: Check if this response corresponds to the latest request
-      if (activeRequestId.current !== requestId) {
-        return; // Ignore stale response
-      }
+      if (activeRequestId.current !== requestId) return;
 
       const finalMessages = [...currentHistory, { role: response.sender, text: response.text } as Message];
       setMessages(finalMessages);
 
       if (response.shouldAdvance) {
         setStep(potentialNextStep);
-        setMistakeCount(0); // Reset mistakes on success
+        setMistakeCount(0);
       } else if (response.sender === 'guide') {
-        setMistakeCount(prev => prev + 1); // Increment mistakes if guide intervenes
+        setMistakeCount(prev => prev + 1);
       }
 
-      // AUTO-SAVE (Real-time: Bot Response)
       if (userEmail && activeSessionId) {
         void saveChatSession(activeSessionId, userEmail, currentScenario.id, currentScenario.title, finalMessages);
       }
@@ -114,16 +115,10 @@ const App: React.FC = () => {
     }
   };
 
-  // Initialize Scenario
-  const initScenario = useCallback(async () => {
-    if (showEmailEntry || showIntro || showTransition || showEnding) return;
+  // --- LOGIC: SCENARIO INIT ---
 
-    // LOCAL STORAGE ID PERSISTENCE:
-    // We create a composite key: "gg_session_{SCENARIO_ID}_{EMAIL}"
-    // This ensures that if the user comes back to THIS specific scenario, they continue the same DB session
-    // instead of creating a new row (UPSERT works on session_id).
-    
-    // Only proceed if we have an email
+  const initScenario = useCallback(async () => {
+    if (view !== 'chat' || showIntro || showTransition || showEnding) return;
     if (!userEmail) return;
 
     const storageKey = `gg_session_${currentScenario.id}_${userEmail}`;
@@ -150,7 +145,7 @@ const App: React.FC = () => {
         SCENARIOS[currentScenarioIndex], 
         ConversationStep.INIT_MISLED,
         0,
-        SCENARIOS[currentScenarioIndex].isTutorial || false // Pass isTutorialMode
+        SCENARIOS[currentScenarioIndex].isTutorial || false
       );
       
       if (activeRequestId.current !== requestId) return;
@@ -162,7 +157,6 @@ const App: React.FC = () => {
           setStep(ConversationStep.USER_CORRECTS);
       }
       
-      // AUTO-SAVE (Real-time: Initial Bot Message)
       void saveChatSession(activeSessionId, userEmail, SCENARIOS[currentScenarioIndex].id, SCENARIOS[currentScenarioIndex].title, initialMessages);
 
     } catch (error) {
@@ -175,47 +169,56 @@ const App: React.FC = () => {
         setIsLoading(false);
       }
     }
-  }, [currentScenarioIndex, showEmailEntry, showIntro, showTransition, showEnding, userEmail]);
+  }, [currentScenarioIndex, showIntro, showTransition, showEnding, userEmail, view, currentScenario]);
 
   useEffect(() => {
     initScenario();
   }, [initScenario]);
 
+  // --- HANDLERS: USER ACTIONS ---
+
   const handleEmailSubmit = (email: string) => {
     setUserEmail(email);
-    setShowEmailEntry(false);
-    setShowIntro(true);
+    // Random A/B Assignment
+    const randomGroup = Math.random() < 0.5 ? 'A' : 'B';
+    setUserGroup(randomGroup);
+    
+    // Save Group Assignment to DB
+    void saveUserGroup(email, randomGroup);
+
+    setView('dashboard');
+  };
+
+  const handleStartChatIntervention = () => {
+    setView('chat');
+    setShowIntro(true); // Always start with Intro overlay when entering chat
+    setCurrentScenarioIndex(0); // Reset to beginning
+  };
+
+  const handleUpdateProgress = (key: keyof ProgressState, value: boolean) => {
+    setProgress(prev => ({ ...prev, [key]: value }));
   };
 
   const handleSendMessage = (text: string) => {
     const messagesWithUser = [...messages, { role: 'user', text } as Message];
     setMessages(messagesWithUser);
-
-    const currentSessionId = sessionIdRef.current; // Use Ref to guarantee latest value
-
-    // AUTO-SAVE (Real-time: User Message)
+    const currentSessionId = sessionIdRef.current;
     if (userEmail && currentSessionId) {
        void saveChatSession(currentSessionId, userEmail, currentScenario.id, currentScenario.title, messagesWithUser);
     }
-
     processBotInteraction(text, messagesWithUser, currentSessionId);
   };
 
   const handleResendMessage = () => {
     const currentSessionId = sessionIdRef.current;
-    
     const hasUserMessage = messages.some(m => m.role === 'user');
-    
     if (!hasUserMessage) {
         initScenario();
         return;
     }
-
     const cleanMessages = messages.filter(m => !m.text.includes("trouble thinking straight"));
     setMessages(cleanMessages);
-
     const lastUserMessage = [...cleanMessages].reverse().find(m => m.role === 'user');
-    
     if (lastUserMessage) {
        processBotInteraction(lastUserMessage.text, cleanMessages, currentSessionId);
     }
@@ -223,15 +226,11 @@ const App: React.FC = () => {
 
   const handleNextScenario = async () => {
     const nextIndex = currentScenarioIndex + 1;
-    
-    // Check if we have reached the end of all scenarios
     if (nextIndex >= SCENARIOS.length) {
         setShowEnding(true);
         return;
     }
-
     const isNextTutorial = SCENARIOS[nextIndex]?.isTutorial;
-
     if (isTutorial && !isNextTutorial) {
       setShowTransition(true);
     } else {
@@ -250,30 +249,52 @@ const App: React.FC = () => {
     setCurrentScenarioIndex(firstTrainingIndex !== -1 ? firstTrainingIndex : 0);
   };
 
-  const returnToMainMenu = () => {
-    // Reset all game state
+  // Called when finishing the ENTIRE chat module
+  const completeChatModule = () => {
+    // Mark intervention as complete
+    handleUpdateProgress('intervention', true);
+    // Reset Chat State
     setShowEnding(false);
     setCurrentScenarioIndex(0);
     setMessages([]);
     setStep(ConversationStep.INIT_MISLED);
     setMistakeCount(0);
-    
-    // Reset User Session Info to return to Email Screen
-    setUserEmail('');
     setSessionId('');
     sessionIdRef.current = '';
-    setShowEmailEntry(true);
-    setShowIntro(false);
-    setShowTransition(false);
+    // Return to Dashboard
+    setView('dashboard');
   }
 
+  // Back button for dashboard (optional, if user wants to bail out of chat mid-way)
+  const returnToDashboard = () => {
+      setView('dashboard');
+  }
+
+  // --- RENDER ---
+
+  if (view === 'email') {
+      return (
+         <div className="min-h-screen bg-gray-50 flex flex-col">
+            <EmailScreen onSubmit={handleEmailSubmit} />
+         </div>
+      );
+  }
+
+  if (view === 'dashboard') {
+      return (
+          <Dashboard 
+            userGroup={userGroup}
+            userEmail={userEmail}
+            progress={progress}
+            onUpdateProgress={handleUpdateProgress}
+            onStartChat={handleStartChatIntervention}
+          />
+      );
+  }
+
+  // VIEW === 'CHAT'
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Email Entry Overlay */}
-      {showEmailEntry && (
-        <EmailScreen onSubmit={handleEmailSubmit} />
-      )}
-
       {/* Intro Overlay */}
       {showIntro && (
         <OverlayScreen
@@ -300,19 +321,28 @@ const App: React.FC = () => {
       {showEnding && (
         <OverlayScreen
           type="ending"
-          title="Congratulations!"
+          title="Module Complete!"
           description="You have successfully trained GraphGullible on all scenarios! You are now a master of identifying misleading data visualizations."
-          buttonText="Go to Main Page"
-          onStart={returnToMainMenu}
+          buttonText="Return to Dashboard" // Changed text
+          onStart={completeChatModule} // Changed Handler
         />
       )}
 
-      {/* Top Header / Progress Bar */}
+      {/* Top Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-30 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-        <h1 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
-          <BarChart3 className="text-indigo-600" />
-          GraphGullible
-        </h1>
+        <div className="flex items-center gap-4">
+            <button 
+                onClick={returnToDashboard} 
+                className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-900 transition-colors"
+                title="Back to Dashboard"
+            >
+                <ArrowLeft size={20} />
+            </button>
+            <h1 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
+            <BarChart3 className="text-indigo-600" />
+            GraphGullible
+            </h1>
+        </div>
 
         <div className="flex items-center gap-6">
             <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${isTutorial ? 'bg-amber-100 text-amber-700 ring-2 ring-amber-200 ring-offset-1' : 'bg-gray-100 text-gray-400 opacity-50'}`}>
