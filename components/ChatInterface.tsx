@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Send, Bot, User, Sparkles, Lightbulb, ShieldCheck, RefreshCw, AlertCircle } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Lightbulb, ShieldCheck, RefreshCw, AlertCircle, ArrowRight } from 'lucide-react';
 import { Message, TutorialStepConfig } from '../types';
 
 interface ChatInterfaceProps {
@@ -24,6 +24,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   tutorialConfig
 }) => {
   const [inputText, setInputText] = useState('');
+  const [showTutorialHint, setShowTutorialHint] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -33,6 +34,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading, tutorialConfig]);
+
+  // Tutorial Hint Logic
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    setShowTutorialHint(false);
+
+    // Check if it's the first step of the tutorial (no user messages yet)
+    const userMsgCount = messages.filter(m => m.role === 'user').length;
+    if (isTutorialMode && tutorialConfig && userMsgCount === 0 && !isLoading) {
+      timer = setTimeout(() => {
+        setShowTutorialHint(true);
+      }, 5000);
+    }
+
+    return () => clearTimeout(timer);
+  }, [isTutorialMode, tutorialConfig, messages, isLoading]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,6 +203,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                    <span className="font-medium">{tutorialConfig.guideMessage}</span>
                 </div>
              </div>
+
+             {showTutorialHint && (
+                <div className="flex items-center gap-2 animate-pulse text-amber-600 text-xs font-bold justify-center bg-amber-50 py-1 rounded border border-amber-100">
+                  <span>👇 Please click the message shown below to continue</span>
+                </div>
+             )}
              
              {isLoading ? (
                // While loading in Tutorial Mode, show disabled button
@@ -209,7 +232,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
         ) : (
           // Normal Mode: Text Input
-          <form onSubmit={handleSubmit} className="relative flex items-center">
+          <div className="w-full space-y-3">
+            {!isTutorialMode && messages.filter(m => m.role === 'user').length > 10 && !isCompleted && (
+               <button
+                 onClick={onNextScenario}
+                 className="w-full py-2 text-xs text-gray-500 hover:text-indigo-600 bg-gray-100 hover:bg-indigo-50 rounded-lg transition-colors flex items-center justify-center gap-1.5 mb-2 border border-gray-200 hover:border-indigo-200"
+               >
+                 <span>Stuck? Skip to Next Challenge</span>
+                 <ArrowRight size={12} />
+               </button>
+            )}
+            <form onSubmit={handleSubmit} className="relative flex items-center">
             <input
               type="text"
               value={inputText}
@@ -226,6 +259,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               <Send size={16} />
             </button>
           </form>
+          </div>
         )}
       </div>
     </div>
